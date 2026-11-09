@@ -1,0 +1,33 @@
+{
+  "name": "gpt-image",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Local Vue 3/Vite web app with Flask backend for OpenAI Images API",
+  "engines": {
+    "node": "^24.17.0",
+    "npm": "11.13.0"
+  },
+  "scripts": {
+    "predev": "node ./scripts/check-npm-version.js",
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "node ./scripts/check-npm-version.js",
+    "build": "vite build",
+    "pretest": "node ./scripts/check-npm-version.js",
+    "test": ".venv/bin/python -m unittest discover -s tests && node --test",
+    "preview": "vite preview --host 127.0.0.1",
+    "prepreview": "node ./scripts/check-npm-version.js"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@iconify-json/mdi": "^1.2.3",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "sass": "^1.107.1",
+    "unplugin-icons": "^24.0.0",
+    "unplugin-vue-components": "^32.1.0",
+    "vite": "^7.1.2",
+    "vite-plugin-mkcert": "^2.1.0"
+  }
+}
