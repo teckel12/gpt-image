@@ -1,7 +1,6 @@
 # GPT Image
 
-Web application for generating images from prompts and editing images with references through the OpenAI Images API.
-Generated images are previewed in the browser and downloaded there; the backend does not save generated files.
+Web application for generating images from prompts and editing images with references through the OpenAI Images API. Generated images are previewed in the browser and downloaded there; the backend does not save generated files.
 
 Choose PNG, JPEG, WebP, GIF, or SVG output. Downloads use `generated-image.<format>` as a default name that can be changed when saving. Compression applies to JPEG and WebP; transparent backgrounds apply to PNG and WebP. SVG output requires prompt-only generation.
 
@@ -41,15 +40,9 @@ Start Vite in another terminal:
 nvm use && npm run dev
 ```
 
-Open the HTTPS URL printed by Vite. For phone testing, use its Network URL;
-keep both devices on the same local network and allow Vite's listening port
-through the computer firewall. Vite proxies `/api` requests to Flask.
+Open the HTTPS URL printed by Vite. For phone testing, use its Network URL; keep both devices on the same local network and allow Vite's listening port through the computer firewall. Vite proxies `/api` requests to Flask.
 
-To trust the development certificate on a phone, install
-`~/.vite-plugin-mkcert/rootCA.pem` from the development computer on the phone.
-On iOS, install the downloaded profile, then enable full trust under
-**Settings > General > About > Certificate Trust Settings**. Never share
-`rootCA-key.pem`.
+To trust the development certificate on a phone, install `~/.vite-plugin-mkcert/rootCA.pem` from the development computer on the phone. On iOS, install the downloaded profile, then enable full trust under **Settings > General > About > Certificate Trust Settings**. Never share `rootCA-key.pem`.
 
 ## Run tests
 
@@ -81,4 +74,4 @@ Run the local production server:
 .venv/bin/waitress-serve --listen=127.0.0.1:8080 --call backend.app:create_app
 ```
 
-Open `http://127.0.0.1:8080`. Deployment must include the Python environment and root `dist/` build output. Keep `.env` on the server and never expose the API key to browser code.
+Open `http://127.0.0.1:8080`. Deployment must include the Python environment and root `dist/` build output.

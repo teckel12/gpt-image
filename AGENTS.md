@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A local Vue 3/Vite web application with a Flask backend for creating or editing images through the OpenAI Images API. The browser handles the form and image selection; Python validates requests, calls the API, and saves generated images locally.
+Vue 3/Vite web application with a Flask backend for creating or editing images through the OpenAI Images API. The browser handles the form and image selection; Python validates requests, calls the API, and saves generated images locally.
 
 ## Secrets Policy
 
