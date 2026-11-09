@@ -12,7 +12,8 @@ A local Vue 3/Vite web application with a Flask backend for creating or editing 
 
 ## Coding Conventions
 
-- Project uses Python v3.13; run project Python commands and tests with `.venv/bin/python` after `./setup.sh`.
+- Frontend uses Vue 3/Vite; follow Vue Options API patterns.
+- Backend uses Python v3.13/Flask/Waitress.
 - Follow YAGNI principles, and one-liner solutions.
 - Do not assume intent.
 - Make precise changes; preserve behavior unless user requests change.
@@ -102,17 +103,30 @@ Persisted outside chat: write normal prose code, comments, commits, docs, issue/
 
 ## Validation
 
-Run smallest relevant existing checks after changes:
+Run checks relevant to changed code. After `./setup.sh`, use `.venv/bin/python` for backend Python commands.
 
 ```bash
-python3 -m py_compile *.py
+.venv/bin/python -m py_compile backend/*.py
 bash -n ./*.sh
 git diff --check
 ```
 
-For frontend changes, validate the production build. For behavior changes, run
-the test suite:
+Run backend tests:
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+```
+
+Run frontend tests:
+
+```bash
+nvm use && node --test
+```
+
+For frontend changes, validate the production build. Run full suite and build:
 
 ```bash
 nvm use && npm run build && npm test
 ```
+
+`npm test` runs both backend and frontend tests.
