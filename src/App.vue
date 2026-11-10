@@ -12,7 +12,7 @@
             @click="resetForm"
           >
             <i-mdi-arrow-u-left-top-bold class="mdi-icon" />
-            Reset
+            <span>Reset</span>
           </button>
         </h1>
         <p class="intro">
@@ -41,6 +41,7 @@
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/gif"
                     multiple
+                    title="Select one or more images to upload"
                     @change="updateImages"
                   />
                 </label>
@@ -74,6 +75,7 @@
                   <input
                     class="resolution-selector"
                     type="checkbox"
+                    title="Use this image's resolution for output"
                     :checked="form.resolutionImageId === image.previewUrl"
                     :disabled="!image.width || !image.height"
                     :aria-label="`Use Image ${index + 1} resolution for output`"
@@ -99,8 +101,9 @@
             </span>
             <textarea
               v-model="form.prompt"
+              title="Enter your prompt"
+              rows="6"
               required
-              rows="5"
               placeholder="Describe what you want to create or change..."
             />
           </label>
@@ -108,7 +111,12 @@
           <div class="field-row">
             <label class="field">
               <span>GPT Image Model</span>
-              <select v-model="form.model" required @change="updateModel">
+              <select
+                v-model="form.model"
+                title="Select the GPT Image model to use"
+                required
+                @change="updateModel"
+              >
                 <option v-for="model in models" :key="model.value" :value="model.value">
                   {{ model.display_name }} ({{ model.description }})
                 </option>
@@ -116,7 +124,11 @@
             </label>
             <label class="field">
               <span>Quality</span>
-              <select v-model="form.quality" required>
+              <select
+                v-model="form.quality"
+                title="Select the desired output image quality"
+                required
+              >
                 <option v-for="quality in qualities" :key="quality" :value="quality">
                   {{ quality.charAt(0).toUpperCase() + quality.slice(1) }}
                 </option>
@@ -132,6 +144,7 @@
               <span>Aspect Ratio</span>
               <select
                 v-model="form.aspectRatio"
+                title="Select the desired aspect ratio for the output image"
                 required
                 :disabled="Boolean(selectedResolutionImage)"
               >
@@ -142,13 +155,15 @@
                 >
                   {{ ratio.label }}
                 </option>
+                <option value="specify">Specify Resolution</option>
               </select>
             </label>
             <div class="field">
               <label for="megapixels"><span>Megapixels</span></label>
               <NumericStepper
                 id="megapixels"
-                v-model="form.megapixels"
+                :model-value="megapixelsValue"
+                @update:model-value="form.megapixels = $event"
                 label="megapixels"
                 :mask="megapixelMask"
                 :min="0.7"
@@ -158,24 +173,65 @@
                 pattern="(?:0\.[7-9]|[1-2](?:\.[0-9])?|3(?:\.[0-6])?)"
                 title="Enter a value from 0.7 to 3.6 with at most one decimal place."
                 required
-                :disabled="Boolean(selectedResolutionImage)"
+                :disabled="isSpecifyResolution || Boolean(selectedResolutionImage)"
               />
             </div>
           </div>
-          <p v-if="resolution"
-            class="resolution"
+          <div
+            class="field-row"
             :class="{ 'hide-one-row': Boolean(selectedResolutionImage) }"
           >
-            Output resolution: <strong>{{ resolution }}</strong>{{ megapixels }}
-          </p>
-          <p v-if="resolutionError" class="field-error" role="alert">
+            <div class="field">
+              <label for="output-image-width"><span>Output Image Width</span></label>
+              <NumericStepper
+                id="output-image-width"
+                :model-value="resolution[0] ?? ''"
+                @update:model-value="form.outputImageWidth = $event"
+                label="output image width"
+                mask="####"
+                :min="512"
+                :max="3008"
+                :step="16"
+                title="Enter a width from 512 to 3008 pixels in increments of 16."
+                required
+                :disabled="!isSpecifyResolution || Boolean(selectedResolutionImage)"
+              />
+            </div>
+            <div class="field">
+              <label for="output-image-height"><span>Output Image Height</span></label>
+              <NumericStepper
+                id="output-image-height"
+                :model-value="resolution[1] ?? ''"
+                @update:model-value="form.outputImageHeight = $event"
+                label="output image height"
+                mask="####"
+                :min="512"
+                :max="3008"
+                :step="16"
+                title="Enter a height from 512 to 3008 pixels in increments of 16."
+                required
+                :disabled="!isSpecifyResolution || Boolean(selectedResolutionImage)"
+              />
+            </div>
+          </div>
+          <p
+            v-if="resolutionError"
+            class="resolution field-error"
+            role="alert"
+            :class="{ 'hide-one-row': Boolean(selectedResolutionImage) }"
+          >
             {{ resolutionError }}
           </p>
 
           <div class="field-row">
             <label class="field">
               <span>Output Image Format</span>
-              <select v-model="form.outputFormat" required @change="updateOutputFormat">
+              <select
+                v-model="form.outputFormat"
+                title="Select the desired output image format"
+                required
+                @change="updateOutputFormat"
+              >
                 <option value="png">PNG</option>
                 <option value="jpeg">JPEG</option>
                 <option value="webp">WebP</option>
@@ -194,7 +250,7 @@
                 </option>
               </select>
             </label>
-            <div class="field" :class="{ 'is-disabled': !compressionSupported }">
+            <div class="field">
               <label for="output-compression"><span>Compression Quality</span></label>
               <NumericStepper
                 id="output-compression"
@@ -268,6 +324,7 @@
               <input
                 v-model="form.transparentBackground"
                 type="checkbox"
+                title="Generate image with transparent background"
                 :disabled="!transparentBackgroundSupported"
               />
               <span>Transparent Background</span>
@@ -279,14 +336,18 @@
               <input
                 v-model="form.streamPartialImages"
                 type="checkbox"
-                title="Preview the rendering process of the image"
+                title="Preview the image as it's being generated"
                 :disabled="!streamingSupported"
               />
               <span>Preview Rendering Process</span>
             </label>
           </div>
 
-          <button type="submit" :disabled=submitDisabled>
+          <button
+            type="submit"
+            title="Generate the image with the specified options"
+            :disabled=submitDisabled
+          >
             <i-mdi-image
               v-if="!loading"
               class="mdi-icon"
@@ -316,18 +377,7 @@
             id="generated-result"
             class="generated-result"
           >
-            <p
-              v-if="generatedImage.generationPending"
-              class="message"
-              role="status"
-            >
-              {{
-                generatedImage.streamingPending
-                  ? "Generating image previews..."
-                  : "Generating image..."
-              }}
-            </p>
-            <p v-else class="message success" role="status">
+            <p v-if="!generatedImage.generationPending" class="message success" role="status">
               <code>{{ generatedImage.filename }}</code>
               <span v-if="generatedImage.elapsedSeconds !== null">
                 ({{ generatedImage.elapsedSeconds.toFixed(1) }} seconds<span
@@ -336,10 +386,7 @@
                 >)
               </span>
             </p>
-            <p v-if="generatedImage.descriptionPending" class="message" role="status">
-              Creating descriptive filename...
-            </p>
-            <p v-if="generatedImage.descriptionError" class="message error" role="alert">
+            <p v-else-if="generatedImage.descriptionError" class="message error" role="alert">
               {{ generatedImage.descriptionError }}
             </p>
 
@@ -442,7 +489,7 @@ import {
 import { estimateGenerationCost } from "./modules/cost-estimator.js";
 import { createDescriptionImageBlob } from "./modules/description-image.js";
 import {
-  parseResolution,
+  formatMegapixels,
   roundToNearestMultipleOf16,
 } from "./modules/resolution.js";
 import NumericStepper from "./components/NumericStepper.vue";
@@ -469,6 +516,8 @@ const DEFAULT_FORM_VALUES = {
   quality: "",
   aspectRatio: "",
   megapixels: 1.0,
+  outputImageWidth: 1024,
+  outputImageHeight: 1024,
   resolutionImageId: null,
   outputFormat: "png",
   outputCompression: 90,
@@ -511,7 +560,17 @@ export default {
       form: createDefaultForm(),
     };
   },
+  watch: {
+    "form.aspectRatio"(newValue, oldValue) {
+      if (newValue === "specify" || (!this.isSpecifyResolution && oldValue === "specify")) {
+        this.form.megapixels = 1.0;
+      }
+    },
+  },
   computed: {
+    isSpecifyResolution() {
+      return this.form.aspectRatio === "specify";
+    },
     selectedResolutionImage() {
       return (
         this.form.images.find(
@@ -585,30 +644,39 @@ export default {
       }
       return "";
     },
-    megapixels() {
-      return this.selectedResolutionImage
-        ? ' (' + ((this.selectedResolutionImage.width * this.selectedResolutionImage.height) / 1_000_000).toFixed(1) + 'MP)'
-        : '';
+    megapixelsValue() {
+      return this.isSpecifyResolution
+        ? formatMegapixels(this.form.outputImageWidth, this.form.outputImageHeight)
+        : this.form.megapixels;
     },
     resolution() {
       if (this.selectedResolutionImage) {
         const { width, height } = this.selectedResolutionImage;
         if (!width || !height) {
-          return "";
+          return [];
         }
-        return `${roundToNearestMultipleOf16(width)} × ${roundToNearestMultipleOf16(height)}`;
+        return [roundToNearestMultipleOf16(width), roundToNearestMultipleOf16(height)];
+      }
+
+      if (this.isSpecifyResolution) {
+        const width = Number(this.form.outputImageWidth);
+        const height = Number(this.form.outputImageHeight);
+        if (!Number.isFinite(width) || !Number.isFinite(height)) {
+          return [];
+        }
+        return [width, height];
       }
 
       if (
         !this.form.aspectRatio ||
-        !Number.isFinite(this.form.megapixels) ||
-        this.form.megapixels <= 0
+        !Number.isFinite(Number(this.megapixelsValue)) ||
+        Number(this.megapixelsValue) <= 0
       ) {
-        return "";
+        return [];
       }
 
       const [ratioWidth, ratioHeight] = this.form.aspectRatio.split(":").map(Number);
-      const targetPixels = this.form.megapixels * 1_000_000;
+      const targetPixels = Number(this.megapixelsValue) * 1_000_000;
       const width = Math.max(
         16,
         Math.floor(Math.sqrt(targetPixels * (ratioWidth / ratioHeight)) / 16 + 0.5) * 16,
@@ -617,23 +685,35 @@ export default {
         16,
         Math.floor(Math.sqrt(targetPixels * (ratioHeight / ratioWidth)) / 16 + 0.5) * 16,
       );
-      return `${width} × ${height}`;
+      return [width, height];
     },
     resolutionError() {
       if (!this.resolution) {
-        return this.selectedResolutionImage
-          ? "Selected image resolution is unavailable."
+        if (this.selectedResolutionImage) {
+          return "Selected image resolution is unavailable.";
+        }
+        return this.isSpecifyResolution
+          ? "Output width and height must be integers."
           : "Megapixels must be a positive number.";
       }
-      const [width, height] = parseResolution(this.resolution);
+      const [width, height] = this.resolution;
       const pixels = width * height;
       const selectedImage = Boolean(this.selectedResolutionImage);
+      if (
+        this.isSpecifyResolution &&
+        (width < 512 || width > 3008 || height < 512 || height > 3008)
+      ) {
+        return "Output width and height must be from 512 to 3008 pixels.";
+      }
       if (width % 16 || height % 16) {
         return "Output width and height must be multiples of 16.";
       }
       if (pixels < MIN_PIXELS) {
         if (selectedImage) {
           return "Selected image resolution is below the minimum supported size of 655,360 pixels. Choose a larger image or clear the selection.";
+        }
+        if (this.isSpecifyResolution) {
+          return "Specified resolution is below the minimum supported size of 655,360 pixels. Increase output width or height.";
         }
         return "Computed resolution is below the minimum supported size of 655,360 pixels. Increase megapixels.";
       }
@@ -647,6 +727,9 @@ export default {
         if (selectedImage) {
           return "Selected image resolution exceeds supported image limits. Choose a smaller image or clear the selection.";
         }
+        if (this.isSpecifyResolution) {
+          return "Specified resolution exceeds supported image limits. Decrease output width or height.";
+        }
         return "Computed resolution exceeds the maximum supported size of 3,686,400 pixels. Decrease megapixels.";
       }
       return "";
@@ -658,7 +741,7 @@ export default {
         return null;
       }
 
-      const [outputWidth, outputHeight] = parseResolution(this.resolution);
+      const [outputWidth, outputHeight] = this.resolution;
       return estimateGenerationCost({
         outputWidth,
         outputHeight,
@@ -725,7 +808,7 @@ export default {
       }
       this.stopGenerationTimer();
       this.releasePreviews();
-      this.clearGeneratedImage();
+      // this.clearGeneratedImage();
       const defaultModel = this.models[0];
       this.form = createDefaultForm({
         model: defaultModel?.value ?? "",
@@ -951,7 +1034,7 @@ export default {
       const outputFormat = this.apiOutputFormat;
       const generateDescription = this.form.generateDescription;
       const streamPartialImages = this.form.streamPartialImages;
-      const [placeholderWidth, placeholderHeight] = parseResolution(this.resolution);
+      const [placeholderWidth, placeholderHeight] = this.resolution;
       const placeholderBlob = createPlaceholderImageBlob(
         placeholderWidth,
         placeholderHeight,
@@ -986,9 +1069,12 @@ export default {
       formData.append("model", this.form.model);
       formData.append("quality", this.form.quality);
       formData.append("aspect_ratio", this.form.aspectRatio);
-      formData.append("megapixels", String(this.form.megapixels));
-      if (this.selectedResolutionImage && this.resolution) {
-        const [width, height] = parseResolution(this.resolution).map(String);
+      formData.append("megapixels", String(this.megapixelsValue));
+      if (
+        (this.selectedResolutionImage || this.isSpecifyResolution) &&
+        this.resolution
+      ) {
+        const [width, height] = this.resolution.map(String);
         formData.append("resolution_width", width);
         formData.append("resolution_height", height);
       }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  parseResolution,
+  formatMegapixels,
   roundToNearestMultipleOf16,
 } from "../src/modules/resolution.js";
 
@@ -13,7 +13,7 @@ test("rounds image dimensions to the nearest multiple of 16", () => {
   assert.equal(roundToNearestMultipleOf16(1), 16);
 });
 
-test("parses display resolutions with either multiplication separator", () => {
-  assert.deepEqual(parseResolution("1024 × 768"), [1024, 768]);
-  assert.deepEqual(parseResolution("1024 x 768"), [1024, 768]);
+test("formats custom dimensions as megapixels to one decimal place", () => {
+  assert.equal(formatMegapixels(1024, 1024), "1.0");
+  assert.equal(formatMegapixels(1200, 1024), "1.2");
 });

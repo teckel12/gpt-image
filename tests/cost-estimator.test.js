@@ -55,7 +55,7 @@ test("estimates output-only generations without adding input-image cost", () => 
   assert.equal(estimate.totalCost, estimate.outputCost);
 });
 
-test("prices nine animated GIF frames at twice single-frame cost", () => {
+test("prices nine animated GIF frames at half the single-frame cost", () => {
   const estimate = estimateGenerationCost({
     outputWidth: 1000,
     outputHeight: 1000,
@@ -65,9 +65,9 @@ test("prices nine animated GIF frames at twice single-frame cost", () => {
     outputFrameCount: 9,
   });
 
-  assert.equal(estimate.outputCost, 0.04);
+  assert.equal(estimate.outputCost, 0.052);
   assert.equal(estimate.inputCost, 0.01);
-  assert.equal(estimate.totalCost, 0.05);
+  assert.equal(estimate.totalCost, 0.062);
 });
 
 test("adds the streaming preview surcharge to the estimated total", () => {
