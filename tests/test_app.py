@@ -1,4 +1,5 @@
 import io
+import json
 import struct
 import tempfile
 import unittest
@@ -7,7 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from backend.app import create_app
-from backend.image_service import DescriptionResult, ImageGenerationResult
+from backend.image_service import (
+    DescriptionResult,
+    ImageGenerationResult,
+    ImageServiceError,
+    ImageStreamEvent,
+)
 
 
 class AppTests(unittest.TestCase):
@@ -150,6 +156,107 @@ class AppTests(unittest.TestCase):
         self.assertTrue(image_request.animated_gif)
         self.assertEqual(image_request.frame_count, 3)
         self.assertEqual(image_request.frame_duration_ms, 120)
+
+    def test_stream_endpoint_relays_partial_and_completed_events(self):
+        image_events = iter(
+            [
+                ImageStreamEvent(
+                    type="partial_image",
+                    b64_json="cHJldmlldw==",
+                    partial_image_index=0,
+                ),
+                ImageStreamEvent(
+                    type="completed",
+                    b64_json="ZmluYWw=",
+                    cost=Decimal("0.0108"),
+                ),
+            ]
+        )
+        with patch(
+            "backend.app.generate_image_stream",
+            return_value=image_events,
+        ) as generate_image_stream:
+            response = self.client.post(
+                "/api/generate",
+                data={
+                    "prompt": "Create an image",
+                    "model": "gpt-image-2.6-sunburst",
+                    "quality": "medium",
+                    "aspect_ratio": "1:1",
+                    "megapixels": "1",
+                    "output_format": "png",
+                    "stream": "true",
+                },
+            )
+            response_data = response.get_data(as_text=True)
+
+        payloads = [
+            json.loads(line.removeprefix("data: "))
+            for line in response_data.splitlines()
+            if line.startswith("data: ")
+        ]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/event-stream")
+        self.assertEqual(
+            [payload["type"] for payload in payloads],
+            ["partial_image", "completed"],
+        )
+        self.assertEqual(payloads[0]["partial_image_index"], 0)
+        self.assertEqual(payloads[1]["cost"], "0.0108")
+        self.assertTrue(generate_image_stream.call_args.args[1].stream)
+
+    def test_stream_endpoint_reports_iteration_errors_as_events(self):
+        def image_events():
+            yield ImageStreamEvent(
+                type="partial_image",
+                b64_json="cHJldmlldw==",
+                partial_image_index=0,
+            )
+            raise ImageServiceError("Image stream ended without a completed image.")
+
+        with self.assertLogs("backend.app", level="ERROR"):
+            with patch(
+                "backend.app.generate_image_stream",
+                return_value=image_events(),
+            ):
+                response = self.client.post(
+                    "/api/generate",
+                    data={
+                        "prompt": "Create an image",
+                        "model": "gpt-image-2.6-sunburst",
+                        "quality": "medium",
+                        "aspect_ratio": "1:1",
+                        "megapixels": "1",
+                        "output_format": "png",
+                        "stream": "true",
+                    },
+                )
+                response_data = response.get_data(as_text=True)
+
+        payloads = [
+            json.loads(line.removeprefix("data: "))
+            for line in response_data.splitlines()
+            if line.startswith("data: ")
+        ]
+        self.assertEqual(payloads[-1]["type"], "error")
+        self.assertIn("without a completed image", payloads[-1]["error"])
+
+    def test_stream_endpoint_rejects_gif_output(self):
+        response = self.client.post(
+            "/api/generate",
+            data={
+                "prompt": "Create an image",
+                "model": "gpt-image-2.6-sunburst",
+                "quality": "medium",
+                "aspect_ratio": "1:1",
+                "megapixels": "1",
+                "output_format": "gif",
+                "stream": "true",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not supported", response.get_json()["error"])
 
     def test_description_endpoint_returns_filename_for_png(self):
         image_bytes = (

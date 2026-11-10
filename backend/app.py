@@ -1,9 +1,19 @@
+import json
 import logging
 from io import BytesIO
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import (
+    Flask,
+    Response,
+    abort,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+    stream_with_context,
+)
 from openai import OpenAIError
 
 from backend.image_service import (
@@ -21,6 +31,7 @@ from backend.image_service import (
     ValidationError,
     generate_description,
     generate_image,
+    generate_image_stream,
     validate_images,
     validate_request,
 )
@@ -72,8 +83,63 @@ def create_app() -> Flask:
                 animated_gif=request.form.get("animated_gif"),
                 frame_count=request.form.get("frame_count"),
                 frame_duration_ms=request.form.get("frame_duration_ms"),
+                stream=request.form.get("stream"),
             )
             images = validate_images(request.files.getlist("images"))
+            if image_request.stream:
+                image_events = generate_image_stream(images, image_request)
+
+                def stream_response():
+                    try:
+                        for event in image_events:
+                            payload = {
+                                "type": event.type,
+                                "b64_json": event.b64_json,
+                            }
+                            if event.type == "partial_image":
+                                payload["partial_image_index"] = (
+                                    event.partial_image_index
+                                )
+                            else:
+                                payload["cost"] = (
+                                    str(event.cost)
+                                    if event.cost is not None
+                                    else None
+                                )
+                            yield f"data: {json.dumps(payload)}\n\n"
+                    except OpenAIError:
+                        app.logger.exception("OpenAI image stream failed")
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {
+                                    "type": "error",
+                                    "error": (
+                                        "OpenAI image request failed. "
+                                        "Check server logs."
+                                    ),
+                                }
+                            )
+                            + "\n\n"
+                        )
+                    except ImageServiceError as error:
+                        app.logger.exception("Image API stream returned invalid data")
+                        yield (
+                            "data: "
+                            + json.dumps(
+                                {"type": "error", "error": str(error)}
+                            )
+                            + "\n\n"
+                        )
+
+                return Response(
+                    stream_with_context(stream_response()),
+                    mimetype="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "X-Accel-Buffering": "no",
+                    },
+                )
             image_result = generate_image(images, image_request)
         except ValidationError as error:
             return jsonify(error=str(error)), 400

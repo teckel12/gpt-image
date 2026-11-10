@@ -7,6 +7,7 @@ export function estimateGenerationCost({
   inputImages,
   inputPricePerMegapixel,
   outputFrameCount = 1,
+  additionalCost = 0,
 }) {
   if (
     !Number.isFinite(outputWidth) ||
@@ -18,7 +19,9 @@ export function estimateGenerationCost({
     !Number.isFinite(inputPricePerMegapixel) ||
     inputPricePerMegapixel < 0 ||
     !Number.isInteger(outputFrameCount) ||
-    outputFrameCount <= 0
+    outputFrameCount <= 0 ||
+    !Number.isFinite(additionalCost) ||
+    additionalCost < 0
   ) {
     return null;
   }
@@ -53,7 +56,7 @@ export function estimateGenerationCost({
   return {
     inputCost,
     outputCost,
-    totalCost: inputCost + outputCost,
+    totalCost: inputCost + outputCost + additionalCost,
     pendingInputCount,
     unreadableInputCount,
   };

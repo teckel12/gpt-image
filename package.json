@@ -19,6 +19,7 @@
     "prepreview": "node ./scripts/check-npm-version.js"
   },
   "dependencies": {
+    "maska": "^3.2.2",
     "vue": "^3.5.43"
   },
   "devDependencies": {

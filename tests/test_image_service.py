@@ -13,11 +13,13 @@ from openai import OpenAI as OpenAIClient
 
 from backend.image_service import (
     DESCRIPTION_PROMPT,
+    ImageStreamEvent,
     ImageServiceError,
     ValidationError,
     compute_resolution,
     generate_description,
     generate_image,
+    generate_image_stream,
     sanitize_description_filename,
     validate_images,
     validate_request,
@@ -50,6 +52,34 @@ def image_api_response(image_bytes):
     return SimpleNamespace(
         data=[SimpleNamespace(b64_json=encoded_image)],
         usage=None,
+        model_dump=lambda mode="json": response_data,
+    )
+
+
+class FakeImageStream:
+    def __init__(self, events):
+        self.events = events
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self.events)
+
+    def close(self):
+        self.closed = True
+
+
+def image_stream_event(event_type, image_bytes, *, index=None, usage=None):
+    encoded_image = base64.b64encode(image_bytes).decode("ascii")
+    response_data = {
+        "type": event_type,
+        "b64_json": encoded_image,
+        "partial_image_index": index,
+    }
+    return SimpleNamespace(
+        type=event_type,
+        b64_json=encoded_image,
+        partial_image_index=index,
+        usage=usage,
         model_dump=lambda mode="json": response_data,
     )
 
@@ -374,6 +404,49 @@ class ImageServiceTests(unittest.TestCase):
                 background="opaque",
             )
 
+    def test_streaming_is_off_by_default_and_rejected_for_gif_and_svg(self):
+        image_request = validate_request(
+            prompt="Create an image",
+            model="gpt-image-2.6-sunburst",
+            quality="medium",
+            aspect_ratio="1:1",
+            megapixels=1,
+        )
+        self.assertFalse(image_request.stream)
+
+        streamed_request = validate_request(
+            prompt="Create an image",
+            model="gpt-image-2.6-sunburst",
+            quality="medium",
+            aspect_ratio="1:1",
+            megapixels=1,
+            stream="true",
+        )
+        self.assertTrue(streamed_request.stream)
+
+        for output_format in ("gif", "svg"):
+            with self.subTest(output_format=output_format):
+                with self.assertRaisesRegex(ValidationError, "not supported"):
+                    validate_request(
+                        prompt="Create an image",
+                        model="gpt-image-2.6-sunburst",
+                        quality="medium",
+                        aspect_ratio="1:1",
+                        megapixels=1,
+                        output_format=output_format,
+                        stream="true",
+                    )
+
+        with self.assertRaisesRegex(ValidationError, "must be true or false"):
+            validate_request(
+                prompt="Create an image",
+                model="gpt-image-2.6-sunburst",
+                quality="medium",
+                aspect_ratio="1:1",
+                megapixels=1,
+                stream="yes",
+            )
+
     def test_image_selection_allows_no_input_and_rejects_empty_files(self):
         self.assertEqual(validate_images([]), [])
         with self.assertRaisesRegex(ValidationError, "empty"):
@@ -571,6 +644,175 @@ class ImageServiceTests(unittest.TestCase):
 
         self.assertEqual(requests[0]["frame_count"], 4)
         self.assertEqual(requests[0]["frame_duration_ms"], 120)
+
+    def test_streamed_generation_requests_three_partials_and_logs_no_image_data(self):
+        image_bytes = b"final-image"
+        stream = FakeImageStream(
+            [
+                image_stream_event(
+                    "image_generation.partial_image",
+                    b"preview-image",
+                    index=0,
+                ),
+                image_stream_event(
+                    "image_generation.completed",
+                    image_bytes,
+                    usage=SimpleNamespace(
+                        input_tokens_details=SimpleNamespace(
+                            image_tokens=100,
+                            text_tokens=200,
+                        ),
+                        output_tokens=300,
+                    ),
+                ),
+            ]
+        )
+        image_request = validate_request(
+            prompt="Create an image",
+            model="gpt-image-2.6-sunburst",
+            quality="medium",
+            aspect_ratio="1:1",
+            megapixels=1,
+            stream=True,
+        )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+            with patch("backend.image_service.OpenAI") as openai:
+                client = openai.return_value.__enter__.return_value
+                client.images.generate.return_value = stream
+                with self.assertLogs("backend.image_service", level="INFO") as logs:
+                    events = list(generate_image_stream([], image_request))
+
+        request = client.images.generate.call_args.kwargs
+        self.assertTrue(request["stream"])
+        self.assertEqual(request["partial_images"], 3)
+        self.assertEqual(
+            [event.type for event in events],
+            ["partial_image", "completed"],
+        )
+        self.assertIsInstance(events[0], ImageStreamEvent)
+        self.assertEqual(events[0].partial_image_index, 0)
+        self.assertEqual(events[1].cost, Decimal("0.0108"))
+        self.assertTrue(stream.closed)
+        self.assertNotIn(
+            base64.b64encode(b"preview-image").decode("ascii"),
+            "\n".join(logs.output),
+        )
+        self.assertNotIn(
+            base64.b64encode(image_bytes).decode("ascii"),
+            "\n".join(logs.output),
+        )
+
+    def test_streamed_edit_uses_images_edit_endpoint(self):
+        stream = FakeImageStream(
+            [
+                image_stream_event(
+                    "image_edit.completed",
+                    b"edited-image",
+                    usage=SimpleNamespace(output_tokens=1_000),
+                )
+            ]
+        )
+        image = SimpleNamespace(
+            filename="reference.png",
+            mimetype="image/png",
+            stream=io.BytesIO(b"reference"),
+        )
+        image_request = validate_request(
+            prompt="Edit this image",
+            model="gpt-image-2.6-sunburst",
+            quality="medium",
+            aspect_ratio="1:1",
+            megapixels=1,
+            stream=True,
+        )
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+            with patch("backend.image_service.OpenAI") as openai:
+                client = openai.return_value.__enter__.return_value
+                client.images.edit.return_value = stream
+                events = list(generate_image_stream([image], image_request))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].type, "completed")
+        self.assertTrue(client.images.edit.call_args.kwargs["stream"])
+        self.assertEqual(client.images.edit.call_args.kwargs["partial_images"], 3)
+
+    def test_openai_sdk_streams_partial_images_and_serializes_request_options(self):
+        requests = []
+        encoded_preview = base64.b64encode(b"preview").decode("ascii")
+        encoded_final = base64.b64encode(b"final").decode("ascii")
+        events = [
+            {
+                "type": "image_generation.partial_image",
+                "b64_json": encoded_preview,
+                "partial_image_index": 0,
+                "background": "auto",
+                "created_at": 123,
+                "output_format": "png",
+                "quality": "medium",
+                "size": "1024x1024",
+            },
+            {
+                "type": "image_generation.completed",
+                "b64_json": encoded_final,
+                "background": "auto",
+                "created_at": 123,
+                "output_format": "png",
+                "quality": "medium",
+                "size": "1024x1024",
+                "usage": {
+                    "input_tokens": 300,
+                    "input_tokens_details": {
+                        "image_tokens": 100,
+                        "text_tokens": 200,
+                    },
+                    "output_tokens": 300,
+                    "total_tokens": 600,
+                },
+            },
+        ]
+
+        def handle_request(request):
+            requests.append(json.loads(request.read()))
+            body = "".join(
+                f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                for event in events
+            )
+            return httpx2.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=body,
+            )
+
+        client = OpenAIClient(
+            api_key="test-key",
+            http_client=httpx2.Client(
+                transport=httpx2.MockTransport(handle_request),
+            ),
+        )
+        image_request = validate_request(
+            prompt="Create an image",
+            model="gpt-image-2.6-sunburst",
+            quality="medium",
+            aspect_ratio="1:1",
+            megapixels=1,
+            stream=True,
+        )
+        try:
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+                with patch("backend.image_service.OpenAI", return_value=client):
+                    image_events = list(generate_image_stream([], image_request))
+        finally:
+            client.close()
+
+        self.assertTrue(requests[0]["stream"])
+        self.assertEqual(requests[0]["partial_images"], 3)
+        self.assertEqual(
+            [event.type for event in image_events],
+            ["partial_image", "completed"],
+        )
+        self.assertEqual(image_events[-1].cost, Decimal("0.0108"))
 
     def test_image_response_logs_metadata_without_image_payload(self):
         image_bytes = b"private-image-data"

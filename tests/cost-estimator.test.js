@@ -70,6 +70,26 @@ test("prices nine animated GIF frames at twice single-frame cost", () => {
   assert.equal(estimate.totalCost, 0.05);
 });
 
+test("adds the streaming preview surcharge to the estimated total", () => {
+  const options = {
+    outputWidth: 1000,
+    outputHeight: 1000,
+    outputPricePerMegapixel: 0.02,
+    inputImages: [],
+    inputPricePerMegapixel: 0.01,
+  };
+  const regularEstimate = estimateGenerationCost(options);
+  const streamingEstimate = estimateGenerationCost({
+    ...options,
+    additionalCost: 0.009,
+  });
+
+  assert.ok(
+    Math.abs(streamingEstimate.totalCost - regularEstimate.totalCost - 0.009) <
+      Number.EPSILON,
+  );
+});
+
 test("returns null for invalid output or rate values", () => {
   assert.equal(
     estimateGenerationCost({

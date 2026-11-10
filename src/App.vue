@@ -2,7 +2,17 @@
   <main class="page">
     <section class="panel" aria-labelledby="page-title">
       <header class="page-header">
-        <h1 id="page-title">GPT Image Generator</h1>
+        <h1 id="page-title">
+          GPT Image Generator
+          <button
+            type="button"
+            class="reset-button"
+            :disabled="loading || !formChanged"
+            @click="resetForm"
+          >
+            <i-mdi-arrow-u-left-top-bold class="mdi-icon" />
+          </button>
+        </h1>
         <p class="intro">
           Generate an image from a prompt, optionally using input images.
         </p>
@@ -11,19 +21,8 @@
       <form class="form" @submit.prevent="submitForm">
         <fieldset class="form-fields" :disabled="!backendReady">
           <p v-if="error" class="message error" role="alert">{{ error }}</p>
-          <button
-            type="button"
-            class="button-animation"
-            :class="{ 'is-hidden': (!generatedImage || generatedImage.descriptionPending) && form.images.length === 0 }"
-            @click="resetForm"
-          >
-            <i-mdi-arrow-u-left-top-bold class="mdi-icon" />
-            Reset Form Values
-          </button>
-          <fieldset
-            class="field-group"
-            :class="{ 'hide-one-row': (!generatedImage || generatedImage.descriptionPending) && form.images.length === 0 }"
-          >
+
+          <fieldset class="field-group">
             <label class="field">
               <span>Input Images (optional)</span>
               <div
@@ -108,7 +107,6 @@
             <label class="field">
               <span>GPT Image Model</span>
               <select v-model="form.model" required @change="updateModel">
-                <option value="" disabled>Select image model</option>
                 <option v-for="model in models" :key="model.value" :value="model.value">
                   {{ model.display_name }} ({{ model.description }})
                 </option>
@@ -117,9 +115,8 @@
             <label class="field">
               <span>Quality</span>
               <select v-model="form.quality" required>
-                <option value="" disabled>Select image quality</option>
                 <option v-for="quality in qualities" :key="quality" :value="quality">
-                  {{ quality }}
+                  {{ quality.charAt(0).toUpperCase() + quality.slice(1) }}
                 </option>
               </select>
             </label>
@@ -136,7 +133,6 @@
                 required
                 :disabled="Boolean(selectedResolutionImage)"
               >
-                <option value="" disabled>Select aspect ratio</option>
                 <option
                   v-for="ratio in aspectRatios"
                   :key="ratio.value"
@@ -146,24 +142,48 @@
                 </option>
               </select>
             </label>
-            <label class="field">
-              <span>Megapixels</span>
-              <input
-                v-model.number="form.megapixels"
-                type="number"
-                min="0.7"
-                max="3.5"
-                step="0.4"
-                required
-                :disabled="Boolean(selectedResolutionImage)"
-              />
-            </label>
+            <div class="field">
+              <label for="megapixels"><span>Megapixels</span></label>
+              <div class="numeric-input">
+                <input
+                  id="megapixels"
+                  v-model.number="form.megapixels"
+                  v-maska="megapixelMask"
+                  type="text"
+                  inputmode="decimal"
+                  pattern="(?:0\.[7-9]|[1-2](?:\.[0-9])?|3(?:\.[0-6])?)"
+                  title="Enter a value from 0.7 to 3.6 with at most one decimal place."
+                  required
+                  :disabled="Boolean(selectedResolutionImage)"
+                  @keydown.up.prevent="stepMegapixels(1)"
+                  @keydown.down.prevent="stepMegapixels(-1)"
+                />
+                <div class="numeric-stepper">
+                  <button
+                    type="button"
+                    aria-label="Increase megapixels"
+                    :disabled="Boolean(selectedResolutionImage) || form.megapixels >= 3.6"
+                    @click="stepMegapixels(1)"
+                  >
+                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Decrease megapixels"
+                    :disabled="Boolean(selectedResolutionImage) || form.megapixels <= 0.7"
+                    @click="stepMegapixels(-1)"
+                  >
+                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
           <p v-if="resolution"
             class="resolution"
             :class="{ 'hide-one-row': Boolean(selectedResolutionImage) }"
           >
-            Output resolution: <strong>{{ resolution }}</strong>
+            Output resolution: <strong>{{ resolution }}</strong>{{ megapixels }}
           </p>
           <p v-if="resolutionError" class="field-error" role="alert">
             {{ resolutionError }}
@@ -173,7 +193,6 @@
             <label class="field">
               <span>Output Image Format</span>
               <select v-model="form.outputFormat" required @change="updateOutputFormat">
-                <option value="" disabled>Select output image format</option>
                 <option value="png">PNG</option>
                 <option value="jpeg">JPEG</option>
                 <option value="webp">WebP</option>
@@ -192,48 +211,149 @@
                 </option>
               </select>
             </label>
-            <label class="field">
-              <span>Image Quality Level</span>
-              <input
-                v-model.number="form.outputCompression"
-                type="number"
-                min="1"
-                max="100"
-                step="1"
-                :required="compressionSupported"
-                :disabled="!compressionSupported"
-              />
-            </label>
+            <div class="field" :class="{ 'is-disabled': !compressionSupported }">
+              <label for="output-compression"><span>Compression Quality</span></label>
+              <div class="numeric-input">
+                <input
+                  id="output-compression"
+                  v-model.number="form.outputCompression"
+                  v-maska="integerFieldConfig.outputCompression.mask"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  title="Enter an integer from 1 to 100; higher values mean better quality"
+                  :min="integerFieldConfig.outputCompression.min"
+                  :max="integerFieldConfig.outputCompression.max"
+                  :step="integerFieldConfig.outputCompression.step"
+                  :required="compressionSupported"
+                  :disabled="!compressionSupported"
+                  @keydown.up.prevent="stepIntegerField('outputCompression', 1)"
+                  @keydown.down.prevent="stepIntegerField('outputCompression', -1)"
+                />
+                <div class="numeric-stepper">
+                  <button
+                    type="button"
+                    aria-label="Increase compression quality"
+                    :disabled="
+                      !compressionSupported ||
+                      form.outputCompression >= integerFieldConfig.outputCompression.max
+                    "
+                    @click="stepIntegerField('outputCompression', 1)"
+                  >
+                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Decrease compression quality"
+                    :disabled="
+                      !compressionSupported ||
+                      form.outputCompression <= integerFieldConfig.outputCompression.min
+                    "
+                    @click="stepIntegerField('outputCompression', -1)"
+                  >
+                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
+
           <div
             class="field-row field-row-animation"
             :class="{ 'is-hidden': !animationOptionsSupported }"
           >
-            <label class="field">
-              <span>Frame Count</span>
-              <input
-                v-model.number="form.frameCount"
-                type="number"
-                min="2"
-                max="16"
-                step="1"
-                :disabled="!animationOptionsSupported"
-                :required="animationOptionsSupported"
-              />
-            </label>
-            <label class="field">
-              <span>Frame Duration (ms)</span>
-              <input
-                v-model.number="form.frameDurationMs"
-                type="number"
-                min="20"
-                max="2000"
-                step="20"
-                :disabled="!animationOptionsSupported"
-                :required="animationOptionsSupported"
-              />
-            </label>
+            <div class="field">
+              <label for="frame-count"><span>Frame Count</span></label>
+              <div class="numeric-input">
+                <input
+                  id="frame-count"
+                  v-model.number="form.frameCount"
+                  v-maska="integerFieldConfig.frameCount.mask"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  title="Enter a value between 1 and 100"
+                  :min="integerFieldConfig.frameCount.min"
+                  :max="integerFieldConfig.frameCount.max"
+                  :step="integerFieldConfig.frameCount.step"
+                  :disabled="!animationOptionsSupported"
+                  :required="animationOptionsSupported"
+                  @keydown.up.prevent="stepIntegerField('frameCount', 1)"
+                  @keydown.down.prevent="stepIntegerField('frameCount', -1)"
+                />
+                <div class="numeric-stepper">
+                  <button
+                    type="button"
+                    aria-label="Increase frame count"
+                    :disabled="
+                      !animationOptionsSupported ||
+                      form.frameCount >= integerFieldConfig.frameCount.max
+                    "
+                    @click="stepIntegerField('frameCount', 1)"
+                  >
+                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Decrease frame count"
+                    :disabled="
+                      !animationOptionsSupported ||
+                      form.frameCount <= integerFieldConfig.frameCount.min
+                    "
+                    @click="stepIntegerField('frameCount', -1)"
+                  >
+                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label for="frame-duration-ms"><span>Frame Duration (ms)</span></label>
+              <div class="numeric-input">
+                <input
+                  id="frame-duration-ms"
+                  v-model.number="form.frameDurationMs"
+                  v-maska="integerFieldConfig.frameDurationMs.mask"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  title="Enter a value between 20 and 2000 milliseconds"
+                  :min="integerFieldConfig.frameDurationMs.min"
+                  :max="integerFieldConfig.frameDurationMs.max"
+                  :step="integerFieldConfig.frameDurationMs.step"
+                  :disabled="!animationOptionsSupported"
+                  :required="animationOptionsSupported"
+                  @keydown.up.prevent="stepIntegerField('frameDurationMs', 1)"
+                  @keydown.down.prevent="stepIntegerField('frameDurationMs', -1)"
+                />
+                <div class="numeric-stepper">
+                  <button
+                    type="button"
+                    aria-label="Increase frame duration"
+                    :disabled="
+                      !animationOptionsSupported ||
+                      form.frameDurationMs >= integerFieldConfig.frameDurationMs.max
+                    "
+                    @click="stepIntegerField('frameDurationMs', 1)"
+                  >
+                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Decrease frame duration"
+                    :disabled="
+                      !animationOptionsSupported ||
+                      form.frameDurationMs <= integerFieldConfig.frameDurationMs.min
+                    "
+                    @click="stepIntegerField('frameDurationMs', -1)"
+                  >
+                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
+
           <p v-if="frameCountError" class="field-error" role="alert">
             {{ frameCountError }}
           </p>
@@ -243,12 +363,10 @@
           <p v-if="outputCompressionError" class="field-error" role="alert">
             {{ outputCompressionError }}
           </p>
+
           <div
             class="check-row field-row-animation"
-            :class="{
-              'hide-one-row': !animationOptionsSupported,
-              'is-hidden': !transparentBackgroundSupported
-            }"
+            :class="{ 'hide-one-row': !animationOptionsSupported }"
           >
             <label
               class="check-field"
@@ -261,39 +379,21 @@
               />
               <span>Transparent Background</span>
             </label>
-            <label class="check-field hidden">
+            <label
+              class="check-field"
+              :class="{ 'is-disabled': !streamingSupported }"
+            >
+              <input
+                v-model="form.streamPartialImages"
+                type="checkbox"
+                title="Preview the rendering process of the image"
+                :disabled="!streamingSupported"
+              />
+              <span>Preview Rendering Process</span>
             </label>
           </div>
 
-          <div v-if="costEstimate" class="hidden">
-            <span>
-              Estimated cost: <strong>{{ formatCurrency(costEstimate.totalCost) }}</strong>
-            </span>
-            <span>
-              Input: {{ formatCurrency(costEstimate.inputCost, 4) }} ·
-              Output: {{ formatCurrency(costEstimate.outputCost, 4) }}
-            </span>
-          </div>
-
-          <p v-if="costEstimate && (costEstimate.pendingInputCount || costEstimate.unreadableInputCount)" class="cost-estimate" role="status">
-            <small v-if="costEstimate.pendingInputCount">
-              Reading dimensions for {{ costEstimate.pendingInputCount }} input image(s).
-            </small>
-            <small v-if="costEstimate.unreadableInputCount" class="error">
-              Input estimate excludes {{ costEstimate.unreadableInputCount }} image(s)
-              whose dimensions could not be read.
-            </small>
-          </p>
-
-          <button
-            type="submit"
-            :disabled=submitDisabled
-            class="button-animation"
-            :class="{
-              'hide-one-row': !transparentBackgroundSupported,
-              'hide-two-rows': !transparentBackgroundSupported && !animationOptionsSupported,
-            }"
-          >
+          <button type="submit" :disabled=submitDisabled>
             <i-mdi-image
               v-if="!loading"
               class="mdi-icon"
@@ -310,7 +410,7 @@
             {{ generationError }}
           </p>
           <p
-            v-if="elapsedSeconds !== null && !(generatedImage && !generatedImage.descriptionPending)"
+            v-if="elapsedSeconds !== null && !(generatedImage && !generatedImage.generationPending && !generatedImage.descriptionPending)"
             class="generation-timer"
             role="timer"
             aria-live="off"
@@ -319,11 +419,22 @@
           </p>
 
           <div
-            v-if="generatedImage && !generatedImage.descriptionPending"
+            v-if="generatedImage"
             id="generated-result"
             class="generated-result"
           >
-            <p class="message success" role="status">
+            <p
+              v-if="generatedImage.generationPending"
+              class="message"
+              role="status"
+            >
+              {{
+                generatedImage.streamingPending
+                  ? "Generating image previews..."
+                  : "Generating image..."
+              }}
+            </p>
+            <p v-else class="message success" role="status">
               <code>{{ generatedImage.filename }}</code>
               <span v-if="generatedImage.elapsedSeconds !== null">
                 ({{ generatedImage.elapsedSeconds.toFixed(1) }} seconds<span
@@ -342,14 +453,23 @@
             <img
               ref="generatedImagePreview"
               class="generated-image"
+              :class="{
+                'is-partial-preview':
+                  generatedImage.isPartialPreview && generatedImage.generationPending,
+              }"
               :src="generatedImage.url"
-              alt="Generated image"
+              :alt="
+                generatedImage.generationPending
+                  ? 'Image generation preview'
+                  : 'Generated image'
+              "
               @click="openFullscreen"
             />
             <div class="generated-actions">
               <button
                 ref="fullscreenButton"
                 type="button"
+                :disabled="generatedImage.generationPending"
                 @click="openFullscreen"
               >
                 <i-mdi-magnify-plus class="mdi-icon" />
@@ -357,7 +477,11 @@
               </button>
               <button
                 type="button"
-                :disabled="generatedImage.descriptionPending"
+                :disabled="
+                  generatedImage.generationPending ||
+                  generatedImage.descriptionPending ||
+                  generatedImage.streamingPending
+                "
                 @click="downloadImage"
               >
                 <i-mdi-download class="mdi-icon" />
@@ -366,7 +490,10 @@
               <button
                 type="button"
                 :disabled="
-                  generatedImage.descriptionPending || generatedImage.format === 'svg'
+                  generatedImage.generationPending ||
+                  generatedImage.descriptionPending ||
+                  generatedImage.streamingPending ||
+                  generatedImage.format === 'svg'
                 "
                 @click="addGeneratedImageAsInput"
               >
@@ -414,23 +541,68 @@ import {
   formatActualCost,
   parseActualCost,
 } from "./actual-cost.js";
+import {
+  createPlaceholderImageBlob,
+  consumeImageStream,
+  imageBlobFromBase64,
+} from "./image-stream.js";
 import { estimateGenerationCost } from "./cost-estimator.js";
 import { createDescriptionImageBlob } from "./description-image.js";
+import { stepIntegerValue } from "./numeric-stepper.js";
 import {
   parseResolution,
   roundToNearestMultipleOf16,
 } from "./resolution.js";
+import { vMaska } from "maska/vue";
 
 const MAX_EDGE = 3840;
 const MIN_PIXELS = 655360;
 const MAX_PIXELS = 3686400;
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
+const INTEGER_FIELD_CONFIG = {
+  outputCompression: { min: 1, max: 100, step: 1, mask: "###" },
+  frameCount: { min: 2, max: 16, step: 1, mask: "##" },
+  frameDurationMs: { min: 20, max: 2000, step: 20, mask: "####" },
+};
+const MEGAPIXEL_MASK = {
+  mask: (value) => value.split(".")[0].length > 1 ? "#" : "#.d",
+  tokens: {
+    d: { pattern: /[0-9]/, optional: true },
+  },
+};
+const DEFAULT_FORM_VALUES = {
+  images: [],
+  prompt: "",
+  model: "",
+  quality: "",
+  aspectRatio: "",
+  megapixels: 1.0,
+  resolutionImageId: null,
+  outputFormat: "png",
+  outputCompression: 90,
+  frameCount: 9,
+  frameDurationMs: 200,
+  transparentBackground: false,
+  streamPartialImages: false,
+  generateDescription: true,
+};
+
+const createDefaultForm = (overrides = {}) => ({
+  ...DEFAULT_FORM_VALUES,
+  ...overrides,
+  images: [],
+});
 
 export default {
+  directives: {
+    maska: vMaska,
+  },
   data() {
     return {
       models: [],
       aspectRatios: [],
+      megapixelMask: MEGAPIXEL_MASK,
+      integerFieldConfig: INTEGER_FIELD_CONFIG,
       inputImageCostPerMegapixel: 0,
       loadingOptions: true,
       loading: false,
@@ -444,21 +616,7 @@ export default {
       showFullscreen: false,
       isDragging: false,
       dragDepth: 0,
-      form: {
-        images: [],
-        prompt: "",
-        model: "",
-        quality: "",
-        aspectRatio: "",
-        megapixels: 1,
-        resolutionImageId: null,
-        outputFormat: "png",
-        outputCompression: 90,
-        frameCount: 9,
-        frameDurationMs: 200,
-        transparentBackground: false,
-        generateDescription: true,
-      },
+      form: createDefaultForm(),
     };
   },
   computed: {
@@ -495,38 +653,50 @@ export default {
         this.outputFormats.includes("gif")
       );
     },
+    streamingSupported() {
+      return !["gif", "animated-gif", "svg"].includes(this.form.outputFormat);
+    },
     frameCountError() {
+      const { min, max } = this.integerFieldConfig.frameCount;
       if (
         this.animationOptionsSupported &&
         (!Number.isInteger(this.form.frameCount) ||
-          this.form.frameCount < 2 ||
-          this.form.frameCount > 16)
+          this.form.frameCount < min ||
+          this.form.frameCount > max)
       ) {
-        return "Frame count must be an integer from 2 to 16.";
+        return `Frame count must be an integer from ${min} to ${max}.`;
       }
       return "";
     },
     frameDurationError() {
+      const { min, max, step } = this.integerFieldConfig.frameDurationMs;
       if (
         this.animationOptionsSupported &&
         (!Number.isInteger(this.form.frameDurationMs) ||
-          this.form.frameDurationMs < 20 ||
-          this.form.frameDurationMs > 2000)
+          this.form.frameDurationMs < min ||
+          this.form.frameDurationMs > max ||
+          (this.form.frameDurationMs - min) % step !== 0)
       ) {
-        return "Frame duration must be an integer from 20 to 2000 ms.";
+        return `Frame duration must be an integer from ${min} to ${max} ms in increments of ${step} ms.`;
       }
       return "";
     },
     outputCompressionError() {
+      const { min, max } = this.integerFieldConfig.outputCompression;
       if (
         this.compressionSupported &&
         (!Number.isInteger(this.form.outputCompression) ||
-          this.form.outputCompression < 1 ||
-          this.form.outputCompression > 100)
+          this.form.outputCompression < min ||
+          this.form.outputCompression > max)
       ) {
-        return "Image compression must be an integer from 1 to 100.";
+        return `Image compression must be an integer from ${min} to ${max}.`;
       }
       return "";
+    },
+    megapixels() {
+      return this.selectedResolutionImage
+        ? ' (' + ((this.selectedResolutionImage.width * this.selectedResolutionImage.height) / 1_000_000).toFixed(1) + 'MP)'
+        : '';
     },
     resolution() {
       if (this.selectedResolutionImage) {
@@ -604,6 +774,7 @@ export default {
         inputImages: this.form.images,
         inputPricePerMegapixel: this.inputImageCostPerMegapixel,
         outputFrameCount: this.animationOptionsSupported ? this.form.frameCount : 1,
+        additionalCost: this.form.streamPartialImages ? 0.009 : 0,
       });
     },
     submitDisabled() {
@@ -616,6 +787,13 @@ export default {
         Boolean(this.frameDurationError) ||
         Boolean(this.outputCompressionError)
       )
+    },
+    formChanged() {
+      return JSON.stringify(this.form) !== JSON.stringify(createDefaultForm({
+        model: this.models[0]?.value ?? "",
+        quality: this.models[0]?.qualities[1] ?? this.models[0]?.qualities[0] ?? "",
+        aspectRatio: this.aspectRatios[0]?.value ?? "",
+      }));
     },
   },
   async mounted() {
@@ -649,26 +827,29 @@ export default {
     this.clearGeneratedImage();
   },
   methods: {
+    stepMegapixels(direction) {
+      const currentTenths = Number.isFinite(this.form.megapixels)
+        ? Math.round(this.form.megapixels * 10)
+        : 7;
+      this.form.megapixels = Math.min(36, Math.max(7, currentTenths + direction)) / 10;
+    },
+    stepIntegerField(fieldName, direction) {
+      this.form[fieldName] = stepIntegerValue(
+        this.form[fieldName],
+        direction,
+        this.integerFieldConfig[fieldName],
+      );
+    },
     resetForm() {
       this.stopGenerationTimer();
       this.releasePreviews();
       this.clearGeneratedImage();
       const defaultModel = this.models[0];
-      this.form = {
-        images: [],
-        prompt: "",
+      this.form = createDefaultForm({
         model: defaultModel?.value ?? "",
         quality: defaultModel?.qualities[1] ?? defaultModel?.qualities[0] ?? "",
         aspectRatio: this.aspectRatios[0]?.value ?? "",
-        megapixels: 1,
-        resolutionImageId: null,
-        outputFormat: "png",
-        outputCompression: 90,
-        frameCount: 9,
-        frameDurationMs: 200,
-        transparentBackground: false,
-        generateDescription: true,
-      };
+      });
       this.error = "";
       this.generationError = "";
       this.elapsedSeconds = null;
@@ -746,6 +927,9 @@ export default {
       if (!this.transparentBackgroundSupported) {
         this.form.transparentBackground = false;
       }
+      if (!this.streamingSupported) {
+        this.form.streamPartialImages = false;
+      }
     },
     updateModel() {
       if (!this.outputFormats.includes(this.apiOutputFormat)) {
@@ -782,6 +966,39 @@ export default {
         this.generatedImage = null;
       }
       this.showFullscreen = false;
+    },
+    async createLoadedImageUrl(blob) {
+      const url = URL.createObjectURL(blob);
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        return url;
+      } catch (error) {
+        URL.revokeObjectURL(url);
+        throw error;
+      }
+    },
+    async updateGeneratedImagePreview(blob, updates = {}, waitForPaint = false) {
+      const url = await this.createLoadedImageUrl(blob);
+      const previousUrl = this.generatedImage?.url;
+      this.generatedImage = {
+        ...this.generatedImage,
+        ...updates,
+        blob,
+        url,
+      };
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl);
+      }
+      await this.$nextTick();
+      if (waitForPaint) {
+        await new Promise((resolve) => {
+          window.requestAnimationFrame(() =>
+            window.requestAnimationFrame(resolve),
+          );
+        });
+      }
     },
     isFileDrag(event) {
       return Array.from(event.dataTransfer?.types ?? []).includes("Files");
@@ -851,9 +1068,37 @@ export default {
       this.clearGeneratedImage();
       const outputFormat = this.apiOutputFormat;
       const generateDescription = this.form.generateDescription;
+      const streamPartialImages = this.form.streamPartialImages;
+      const [placeholderWidth, placeholderHeight] = parseResolution(this.resolution);
+      const placeholderBlob = createPlaceholderImageBlob(
+        placeholderWidth,
+        placeholderHeight,
+      );
+      this.generatedImage = {
+        blob: placeholderBlob,
+        url: URL.createObjectURL(placeholderBlob),
+        filename: `generated-image.${outputFormat}`,
+        format: outputFormat,
+        cost: null,
+        downloaded: false,
+        descriptionPending: false,
+        descriptionError: "",
+        elapsedSeconds: null,
+        generationPending: true,
+        streamingPending: streamPartialImages,
+        isPartialPreview: false,
+      };
       const formData = new FormData();
       for (const image of this.form.images) {
         formData.append("images", image.file, image.file.name);
+      }
+      if (this.generatedImage) {
+        setTimeout(() => {
+          document.getElementById("generated-result")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }, 100);
       }
       formData.append("prompt", this.form.prompt);
       formData.append("model", this.form.model);
@@ -879,6 +1124,7 @@ export default {
           ? "transparent"
           : "auto";
       formData.append("background", background);
+      formData.append("stream", String(streamPartialImages));
 
       this.startGenerationTimer();
       try {
@@ -894,24 +1140,40 @@ export default {
               : "Image generation failed. Please try again.",
           );
         }
-        const blob = await response.blob();
-        this.generatedImage = {
-          blob,
-          url: URL.createObjectURL(blob),
-          filename: `generated-image.${outputFormat}`,
-          format: outputFormat,
-          cost: parseActualCost(
-            response.headers.get("X-Image-Generation-Cost"),
-          ),
-          downloaded: false,
-          descriptionPending: generateDescription,
-          descriptionError: "",
-          elapsedSeconds: null,
-        };
+        if (streamPartialImages) {
+          await consumeImageStream(response, async (event) => {
+            const blob = imageBlobFromBase64(event.b64_json, outputFormat);
+            const completed = event.type === "completed";
+            await this.updateGeneratedImagePreview(
+              blob,
+              {
+                cost: completed
+                  ? parseActualCost(event.cost)
+                  : this.generatedImage.cost,
+                generationPending: !completed,
+                streamingPending: !completed,
+                isPartialPreview: !completed,
+              },
+              true,
+            );
+          });
+          this.generatedImage.descriptionPending = generateDescription;
+        } else {
+          const blob = await response.blob();
+          await this.updateGeneratedImagePreview(blob, {
+            cost: parseActualCost(response.headers.get("X-Image-Generation-Cost")),
+            descriptionPending: generateDescription,
+            generationPending: false,
+            streamingPending: false,
+            isPartialPreview: false,
+          });
+        }
         const generatedImage = this.generatedImage;
         if (generateDescription) {
           try {
-            const descriptionBlob = await createDescriptionImageBlob(blob);
+            const descriptionBlob = await createDescriptionImageBlob(
+              generatedImage.blob,
+            );
             const descriptionData = new FormData();
             descriptionData.append("image", descriptionBlob, "description.png");
             const descriptionResponse = await fetch("/api/describe", {
@@ -944,6 +1206,9 @@ export default {
           }
         }
       } catch (error) {
+        if (this.generatedImage?.generationPending) {
+          this.clearGeneratedImage();
+        }
         this.generationError =
           error instanceof Error
             ? error.message
@@ -951,14 +1216,6 @@ export default {
       } finally {
         this.stopGenerationTimer();
         this.loading = false;
-        if (this.generatedImage) {
-          this.$nextTick(() => {
-            document.getElementById("generated-result")?.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-          });
-        }
       }
     },
     downloadImage() {
@@ -974,6 +1231,9 @@ export default {
       this.generatedImage.downloaded = true;
     },
     openFullscreen() {
+      if (!this.generatedImage || this.generatedImage.generationPending) {
+        return;
+      }
       this.showFullscreen = true;
       this.$nextTick(() => this.$refs.imageModal?.focus());
     },

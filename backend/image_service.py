@@ -8,7 +8,7 @@ import struct
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, Protocol, Sequence
+from typing import Any, BinaryIO, Iterator, Literal, Protocol, Sequence
 
 from openai import OpenAI
 
@@ -74,14 +74,14 @@ MODEL_QUALITY_COST_PER_MEGAPIXEL = {
 }
 INPUT_IMAGE_COST_PER_MEGAPIXEL = 0.01
 ASPECT_RATIOS = {
-    "1:1": ("Square", 1, 1),
-    "2:3": ("Portrait Photo", 2, 3),
-    "3:2": ("Photo", 3, 2),
-    "3:4": ("Portrait Standard", 3, 4),
-    "4:3": ("Standard", 4, 3),
-    "9:16": ("Portrait Widescreen", 9, 16),
-    "16:9": ("Widescreen", 16, 9),
-    "21:9": ("Ultrawide", 21, 9),
+    "1:1": ("square", 1, 1),
+    "2:3": ("portrait_photo", 2, 3),
+    "3:2": ("photo", 3, 2),
+    "3:4": ("portrait_standard", 3, 4),
+    "4:3": ("standard", 4, 3),
+    "9:16": ("portrait_widescreen", 9, 16),
+    "16:9": ("widescreen", 16, 9),
+    "21:9": ("ultrawide", 21, 9),
 }
 MAX_EDGE = 3840
 MIN_PIXELS = 655_360
@@ -166,12 +166,21 @@ class ImageRequest:
     animated_gif: bool
     frame_count: int
     frame_duration_ms: int
+    stream: bool
 
 
 @dataclass(frozen=True)
 class ImageGenerationResult:
     image_bytes: bytes
     cost: Decimal | None
+
+
+@dataclass(frozen=True)
+class ImageStreamEvent:
+    type: Literal["partial_image", "completed"]
+    b64_json: str
+    partial_image_index: int | None = None
+    cost: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +212,38 @@ def _usage_cost(
             cost += Decimal(token_data) * rate / TOKENS_PER_MILLION
             has_usage = True
     return cost if has_usage else None
+
+
+def _image_request_options(
+    image_request: ImageRequest,
+) -> tuple[dict[str, str | int | bool], dict[str, int]]:
+    options: dict[str, str | int | bool] = {
+        "prompt": image_request.prompt,
+        "model": image_request.model,
+        "size": image_request.size,
+        "quality": image_request.quality,
+        "output_format": image_request.output_format,
+        "background": image_request.background,
+    }
+    if image_request.output_compression is not None:
+        options["output_compression"] = image_request.output_compression
+    animation_options = {}
+    if image_request.animated_gif:
+        animation_options = {
+            "frame_count": image_request.frame_count,
+            "frame_duration_ms": image_request.frame_duration_ms,
+        }
+    return options, animation_options
+
+
+def _log_openai_stream_event(response: OpenAIResponse, operation: str) -> None:
+    response_data = response.model_dump(mode="json")
+    response_data.pop("b64_json", None)
+    LOGGER.info(
+        "OpenAI %s stream event: %s",
+        operation,
+        json.dumps(response_data),
+    )
 
 
 def validate_output_dimensions(width: int, height: int) -> tuple[int, int]:
@@ -255,6 +296,7 @@ def validate_request(
     animated_gif: str | bool | None = None,
     frame_count: str | int | None = None,
     frame_duration_ms: str | int | None = None,
+    stream: str | bool | None = None,
 ) -> ImageRequest:
     prompt = prompt.strip()
     if not prompt:
@@ -295,6 +337,15 @@ def validate_request(
         raise ValidationError("Animated GIF selection must be true or false.")
     if animated_gif_value and output_format != "gif":
         raise ValidationError("Animated GIF requires GIF output.")
+
+    if stream is True or stream == "true":
+        stream_value = True
+    elif stream is False or stream in (None, "", "false"):
+        stream_value = False
+    else:
+        raise ValidationError("Stream selection must be true or false.")
+    if stream_value and output_format in {"gif", "svg"}:
+        raise ValidationError("Streaming is not supported with GIF or SVG output.")
 
     frame_count_value = 9
     frame_duration_value = 200
@@ -362,6 +413,7 @@ def validate_request(
         animated_gif=animated_gif_value,
         frame_count=frame_count_value,
         frame_duration_ms=frame_duration_value,
+        stream=stream_value,
     )
 
 
@@ -398,22 +450,7 @@ def generate_image(
         )
 
     client = OpenAI(api_key=api_key)
-    options: dict[str, str | int] = {
-        "prompt": image_request.prompt,
-        "model": image_request.model,
-        "size": image_request.size,
-        "quality": image_request.quality,
-        "output_format": image_request.output_format,
-    }
-    animation_options: dict[str, int] = {}
-    if image_request.output_compression is not None:
-        options["output_compression"] = image_request.output_compression
-    if image_request.animated_gif:
-        animation_options = {
-            "frame_count": image_request.frame_count,
-            "frame_duration_ms": image_request.frame_duration_ms,
-        }
-    options["background"] = image_request.background
+    options, animation_options = _image_request_options(image_request)
     if selected_images:
         response = client.images.edit(
             image=[
@@ -440,6 +477,88 @@ def generate_image(
         image_bytes=image_bytes,
         cost=_usage_cost(getattr(response, "usage", None), IMAGE_TOKEN_RATES),
     )
+
+
+def generate_image_stream(
+    images: Sequence[UploadedImage],
+    image_request: ImageRequest,
+) -> Iterator[ImageStreamEvent]:
+    selected_images = validate_images(images)
+    if selected_images and image_request.output_format == "svg":
+        raise ValidationError("SVG output is not supported with input images.")
+    if not image_request.stream:
+        raise ValidationError("Streaming must be enabled for streamed generation.")
+    if image_request.output_format in {"gif", "svg"}:
+        raise ValidationError("Streaming is not supported with GIF or SVG output.")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ConfigurationError(
+            "OPENAI_API_KEY is not configured in the project .env file."
+        )
+
+    options, _ = _image_request_options(image_request)
+    options["stream"] = True
+    options["partial_images"] = 3
+
+    def stream_events() -> Iterator[ImageStreamEvent]:
+        with OpenAI(api_key=api_key) as client:
+            if selected_images:
+                stream = client.images.edit(
+                    image=[
+                        (image.filename, image.stream, image.mimetype)
+                        for image in selected_images
+                    ],
+                    **options,
+                )
+                operation = "images.edit"
+            else:
+                stream = client.images.generate(**options)
+                operation = "images.generate"
+
+            completed = False
+            try:
+                for event in stream:
+                    _log_openai_stream_event(event, operation)
+                    if event.type.endswith(".partial_image"):
+                        try:
+                            base64.b64decode(event.b64_json, validate=True)
+                        except ValueError as error:
+                            raise ImageServiceError(
+                                "Image API returned invalid partial image data."
+                            ) from error
+                        yield ImageStreamEvent(
+                            type="partial_image",
+                            b64_json=event.b64_json,
+                            partial_image_index=event.partial_image_index,
+                        )
+                    elif event.type.endswith(".completed"):
+                        try:
+                            base64.b64decode(event.b64_json, validate=True)
+                        except ValueError as error:
+                            raise ImageServiceError(
+                                "Image API returned invalid image data."
+                            ) from error
+                        completed = True
+                        yield ImageStreamEvent(
+                            type="completed",
+                            b64_json=event.b64_json,
+                            cost=_usage_cost(
+                                getattr(event, "usage", None),
+                                IMAGE_TOKEN_RATES,
+                            ),
+                        )
+                    else:
+                        raise ImageServiceError(
+                            "Image API returned an unsupported streaming event."
+                        )
+                if not completed:
+                    raise ImageServiceError(
+                        "Image API stream ended without a completed image."
+                    )
+            finally:
+                stream.close()
+
+    return stream_events()
 
 
 def validate_description_image(image_bytes: bytes) -> None:

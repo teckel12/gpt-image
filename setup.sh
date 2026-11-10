@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Set up the project's development environment.
+# Setup the Python virtual environment and install Python and Vue dependencies
 
 set -euo pipefail
 
