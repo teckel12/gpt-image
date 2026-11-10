@@ -1,14 +1,12 @@
 # GPT Image
 
-Web application for generating images from prompts and editing images with references through the OpenAI Images API. Generated images are previewed in the browser and downloaded there; the backend does not save generated files.
-
-Choose PNG, JPEG, WebP, GIF, or SVG output. Downloads use `generated-image.<format>` as a default name that can be changed when saving. Compression applies to JPEG and WebP; transparent backgrounds apply to PNG and WebP. SVG output requires prompt-only generation.
+Web application for generating images from prompts and editing images with references through the OpenAI Images API. Generated images are previewed in the browser and can be downloaded from the browser, the backend does not save generated files.
 
 ## Requirements
 
-- Python 3.13 or newer
-- Node.js 24.17.0 and npm 11.13.0 (managed with nvm)
-- An OpenAI API account with access to the image model you intend to use
+- Python 3.13 or newer.
+- Node.js 24.17.0 and npm 11.13.0 (managed with nvm).
+- OpenAI API account with API key and available credits.
 
 ## Setup
 
@@ -40,7 +38,7 @@ Start Vite in another terminal:
 nvm use && npm run dev
 ```
 
-Open the HTTPS URL printed by Vite. For phone testing, use its Network URL; keep both devices on the same local network and allow Vite's listening port through the computer firewall. Vite proxies `/api` requests to Flask.
+Open the HTTPS URL printed by Vite. Vite proxies `/api` requests to Flask.
 
 To trust the development certificate on a phone, install `~/.vite-plugin-mkcert/rootCA.pem` from the development computer on the phone. On iOS, install the downloaded profile, then enable full trust under **Settings > General > About > Certificate Trust Settings**. Never share `rootCA-key.pem`.
 
@@ -54,11 +52,10 @@ nvm use && npm test
 
 This uses the project virtual environment created by `./setup.sh`.
 
-## Vue icons
+## Material Design icons
 
-- Material Design Icons are auto-resolved in Vue templates; no per-icon import is needed.
+- [Material Design Icons](https://pictogrammers.com/library/mdi/) are auto-resolved in Vue templates; no per-icon import is needed.
 - Icon components use the `i-mdi-<icon-name>` format.
-- MDI icon library used for icons in this project: <https://pictogrammers.com/library/mdi/>
 
 ## Build and run in production
 
