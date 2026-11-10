@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   parseResolution,
   roundToNearestMultipleOf16,
-} from "../src/resolution.js";
+} from "../src/modules/resolution.js";
 
 test("rounds image dimensions to the nearest multiple of 16", () => {
   assert.equal(roundToNearestMultipleOf16(1024), 1024);

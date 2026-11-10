@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   createDescriptionImageBlob,
   MAX_DESCRIPTION_PIXELS,
-} from "../src/description-image.js";
+} from "../src/modules/description-image.js";
 
 function createBrowserEnvironment(sourceWidth, sourceHeight) {
   const state = {

@@ -5,7 +5,7 @@ import {
   addActualCost,
   formatActualCost,
   parseActualCost,
-} from "../src/actual-cost.js";
+} from "../src/modules/actual-cost.js";
 
 test("parses valid backend cost values and ignores missing or invalid values", () => {
   assert.equal(parseActualCost("0.0108"), 0.0108);

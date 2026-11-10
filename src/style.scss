@@ -97,7 +97,7 @@ h1 {
   button.reset-button {
     min-height: 36px;
     height: 36px;
-    width: 36px;
+    font-size: 0.875rem;
     float: right;
 
     &:disabled {
@@ -105,8 +105,9 @@ h1 {
     }
 
     .mdi-icon {
-      height: 36px;
-      vertical-align: top;
+      height: 30px;
+      margin-bottom: 4px;
+      vertical-align: bottom;
     }
   }
 }
@@ -114,7 +115,7 @@ h1 {
 .intro {
   margin: 12px 0 0;
   color: #667085;
-  line-height: 1.6;
+  line-height: 1.4;
 }
 
 .form {
@@ -506,11 +507,11 @@ small {
 @keyframes partial-preview-blur {
   0%,
   100% {
-    filter: blur(0);
+    filter: blur(1px);
   }
 
   50% {
-    filter: blur(4px);
+    filter: blur(5px);
   }
 }
 

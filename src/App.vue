@@ -7,10 +7,12 @@
           <button
             type="button"
             class="reset-button"
+            title="Reset all form fields to default"
             :disabled="loading || !formChanged"
             @click="resetForm"
           >
             <i-mdi-arrow-u-left-top-bold class="mdi-icon" />
+            Reset
           </button>
         </h1>
         <p class="intro">
@@ -144,39 +146,20 @@
             </label>
             <div class="field">
               <label for="megapixels"><span>Megapixels</span></label>
-              <div class="numeric-input">
-                <input
-                  id="megapixels"
-                  v-model.number="form.megapixels"
-                  v-maska="megapixelMask"
-                  type="text"
-                  inputmode="decimal"
-                  pattern="(?:0\.[7-9]|[1-2](?:\.[0-9])?|3(?:\.[0-6])?)"
-                  title="Enter a value from 0.7 to 3.6 with at most one decimal place."
-                  required
-                  :disabled="Boolean(selectedResolutionImage)"
-                  @keydown.up.prevent="stepMegapixels(1)"
-                  @keydown.down.prevent="stepMegapixels(-1)"
-                />
-                <div class="numeric-stepper">
-                  <button
-                    type="button"
-                    aria-label="Increase megapixels"
-                    :disabled="Boolean(selectedResolutionImage) || form.megapixels >= 3.6"
-                    @click="stepMegapixels(1)"
-                  >
-                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Decrease megapixels"
-                    :disabled="Boolean(selectedResolutionImage) || form.megapixels <= 0.7"
-                    @click="stepMegapixels(-1)"
-                  >
-                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
+              <NumericStepper
+                id="megapixels"
+                v-model="form.megapixels"
+                label="megapixels"
+                :mask="megapixelMask"
+                :min="0.7"
+                :max="3.6"
+                :step="0.1"
+                inputmode="decimal"
+                pattern="(?:0\.[7-9]|[1-2](?:\.[0-9])?|3(?:\.[0-6])?)"
+                title="Enter a value from 0.7 to 3.6 with at most one decimal place."
+                required
+                :disabled="Boolean(selectedResolutionImage)"
+              />
             </div>
           </div>
           <p v-if="resolution"
@@ -213,48 +196,18 @@
             </label>
             <div class="field" :class="{ 'is-disabled': !compressionSupported }">
               <label for="output-compression"><span>Compression Quality</span></label>
-              <div class="numeric-input">
-                <input
-                  id="output-compression"
-                  v-model.number="form.outputCompression"
-                  v-maska="integerFieldConfig.outputCompression.mask"
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  title="Enter an integer from 1 to 100; higher values mean better quality"
-                  :min="integerFieldConfig.outputCompression.min"
-                  :max="integerFieldConfig.outputCompression.max"
-                  :step="integerFieldConfig.outputCompression.step"
-                  :required="compressionSupported"
-                  :disabled="!compressionSupported"
-                  @keydown.up.prevent="stepIntegerField('outputCompression', 1)"
-                  @keydown.down.prevent="stepIntegerField('outputCompression', -1)"
-                />
-                <div class="numeric-stepper">
-                  <button
-                    type="button"
-                    aria-label="Increase compression quality"
-                    :disabled="
-                      !compressionSupported ||
-                      form.outputCompression >= integerFieldConfig.outputCompression.max
-                    "
-                    @click="stepIntegerField('outputCompression', 1)"
-                  >
-                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Decrease compression quality"
-                    :disabled="
-                      !compressionSupported ||
-                      form.outputCompression <= integerFieldConfig.outputCompression.min
-                    "
-                    @click="stepIntegerField('outputCompression', -1)"
-                  >
-                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
+              <NumericStepper
+                id="output-compression"
+                v-model="form.outputCompression"
+                label="compression quality"
+                :mask="integerFieldConfig.outputCompression.mask"
+                :min="integerFieldConfig.outputCompression.min"
+                :max="integerFieldConfig.outputCompression.max"
+                :step="integerFieldConfig.outputCompression.step"
+                title="Enter an integer from 1 to 100; higher values mean better quality"
+                :required="compressionSupported"
+                :disabled="!compressionSupported"
+              />
             </div>
           </div>
 
@@ -264,93 +217,33 @@
           >
             <div class="field">
               <label for="frame-count"><span>Frame Count</span></label>
-              <div class="numeric-input">
-                <input
-                  id="frame-count"
-                  v-model.number="form.frameCount"
-                  v-maska="integerFieldConfig.frameCount.mask"
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  title="Enter a value between 1 and 100"
-                  :min="integerFieldConfig.frameCount.min"
-                  :max="integerFieldConfig.frameCount.max"
-                  :step="integerFieldConfig.frameCount.step"
-                  :disabled="!animationOptionsSupported"
-                  :required="animationOptionsSupported"
-                  @keydown.up.prevent="stepIntegerField('frameCount', 1)"
-                  @keydown.down.prevent="stepIntegerField('frameCount', -1)"
-                />
-                <div class="numeric-stepper">
-                  <button
-                    type="button"
-                    aria-label="Increase frame count"
-                    :disabled="
-                      !animationOptionsSupported ||
-                      form.frameCount >= integerFieldConfig.frameCount.max
-                    "
-                    @click="stepIntegerField('frameCount', 1)"
-                  >
-                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Decrease frame count"
-                    :disabled="
-                      !animationOptionsSupported ||
-                      form.frameCount <= integerFieldConfig.frameCount.min
-                    "
-                    @click="stepIntegerField('frameCount', -1)"
-                  >
-                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
+              <NumericStepper
+                id="frame-count"
+                v-model="form.frameCount"
+                label="frame count"
+                :mask="integerFieldConfig.frameCount.mask"
+                :min="integerFieldConfig.frameCount.min"
+                :max="integerFieldConfig.frameCount.max"
+                :step="integerFieldConfig.frameCount.step"
+                title="Enter a value between 1 and 100"
+                :disabled="!animationOptionsSupported"
+                :required="animationOptionsSupported"
+              />
             </div>
             <div class="field">
               <label for="frame-duration-ms"><span>Frame Duration (ms)</span></label>
-              <div class="numeric-input">
-                <input
-                  id="frame-duration-ms"
-                  v-model.number="form.frameDurationMs"
-                  v-maska="integerFieldConfig.frameDurationMs.mask"
-                  type="text"
-                  inputmode="numeric"
-                  pattern="[0-9]*"
-                  title="Enter a value between 20 and 2000 milliseconds"
-                  :min="integerFieldConfig.frameDurationMs.min"
-                  :max="integerFieldConfig.frameDurationMs.max"
-                  :step="integerFieldConfig.frameDurationMs.step"
-                  :disabled="!animationOptionsSupported"
-                  :required="animationOptionsSupported"
-                  @keydown.up.prevent="stepIntegerField('frameDurationMs', 1)"
-                  @keydown.down.prevent="stepIntegerField('frameDurationMs', -1)"
-                />
-                <div class="numeric-stepper">
-                  <button
-                    type="button"
-                    aria-label="Increase frame duration"
-                    :disabled="
-                      !animationOptionsSupported ||
-                      form.frameDurationMs >= integerFieldConfig.frameDurationMs.max
-                    "
-                    @click="stepIntegerField('frameDurationMs', 1)"
-                  >
-                    <i-mdi-chevron-up class="mdi-icon" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Decrease frame duration"
-                    :disabled="
-                      !animationOptionsSupported ||
-                      form.frameDurationMs <= integerFieldConfig.frameDurationMs.min
-                    "
-                    @click="stepIntegerField('frameDurationMs', -1)"
-                  >
-                    <i-mdi-chevron-down class="mdi-icon" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
+              <NumericStepper
+                id="frame-duration-ms"
+                v-model="form.frameDurationMs"
+                label="frame duration"
+                :mask="integerFieldConfig.frameDurationMs.mask"
+                :min="integerFieldConfig.frameDurationMs.min"
+                :max="integerFieldConfig.frameDurationMs.max"
+                :step="integerFieldConfig.frameDurationMs.step"
+                title="Enter a value between 20 and 2000 milliseconds"
+                :disabled="!animationOptionsSupported"
+                :required="animationOptionsSupported"
+              />
             </div>
           </div>
 
@@ -540,20 +433,19 @@ import {
   addActualCost,
   formatActualCost,
   parseActualCost,
-} from "./actual-cost.js";
+} from "./modules/actual-cost.js";
 import {
   createPlaceholderImageBlob,
   consumeImageStream,
   imageBlobFromBase64,
-} from "./image-stream.js";
-import { estimateGenerationCost } from "./cost-estimator.js";
-import { createDescriptionImageBlob } from "./description-image.js";
-import { stepIntegerValue } from "./numeric-stepper.js";
+} from "./modules/image-stream.js";
+import { estimateGenerationCost } from "./modules/cost-estimator.js";
+import { createDescriptionImageBlob } from "./modules/description-image.js";
 import {
   parseResolution,
   roundToNearestMultipleOf16,
-} from "./resolution.js";
-import { vMaska } from "maska/vue";
+} from "./modules/resolution.js";
+import NumericStepper from "./components/NumericStepper.vue";
 
 const MAX_EDGE = 3840;
 const MIN_PIXELS = 655360;
@@ -594,8 +486,8 @@ const createDefaultForm = (overrides = {}) => ({
 });
 
 export default {
-  directives: {
-    maska: vMaska,
+  components: {
+    NumericStepper,
   },
   data() {
     return {
@@ -827,20 +719,10 @@ export default {
     this.clearGeneratedImage();
   },
   methods: {
-    stepMegapixels(direction) {
-      const currentTenths = Number.isFinite(this.form.megapixels)
-        ? Math.round(this.form.megapixels * 10)
-        : 7;
-      this.form.megapixels = Math.min(36, Math.max(7, currentTenths + direction)) / 10;
-    },
-    stepIntegerField(fieldName, direction) {
-      this.form[fieldName] = stepIntegerValue(
-        this.form[fieldName],
-        direction,
-        this.integerFieldConfig[fieldName],
-      );
-    },
     resetForm() {
+      if (!this.backendReady || !this.confirmGeneratedImageReplacement()) {
+        return;
+      }
       this.stopGenerationTimer();
       this.releasePreviews();
       this.clearGeneratedImage();

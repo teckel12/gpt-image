@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateGenerationCost } from "../src/cost-estimator.js";
+import { estimateGenerationCost } from "../src/modules/cost-estimator.js";
 
 test("estimates output and all input image costs from pixel dimensions", () => {
   const estimate = estimateGenerationCost({

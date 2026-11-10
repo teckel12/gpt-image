@@ -5,7 +5,7 @@ import {
   createPlaceholderImageBlob,
   consumeImageStream,
   imageBlobFromBase64,
-} from "../src/image-stream.js";
+} from "../src/modules/image-stream.js";
 
 function responseFromChunks(chunks) {
   const encoder = new TextEncoder();
