@@ -4,7 +4,9 @@ import logging
 import math
 import os
 import re
+import shutil
 import struct
+import tempfile
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -499,64 +501,68 @@ def generate_image_stream(
     options, _ = _image_request_options(image_request)
     options["stream"] = True
     options["partial_images"] = 3
+    stream_images: list[tuple[str, BinaryIO, str]] = []
+    for image in selected_images:
+        image_stream = tempfile.SpooledTemporaryFile(max_size=1_048_576)
+        stream_images.append((image.filename, image_stream, image.mimetype))
+        shutil.copyfileobj(image.stream, image_stream)
+        image_stream.seek(0)
 
     def stream_events() -> Iterator[ImageStreamEvent]:
-        with OpenAI(api_key=api_key) as client:
-            if selected_images:
-                stream = client.images.edit(
-                    image=[
-                        (image.filename, image.stream, image.mimetype)
-                        for image in selected_images
-                    ],
-                    **options,
-                )
-                operation = "images.edit"
-            else:
-                stream = client.images.generate(**options)
-                operation = "images.generate"
+        try:
+            with OpenAI(api_key=api_key) as client:
+                if stream_images:
+                    stream = client.images.edit(image=stream_images, **options)
+                    operation = "images.edit"
+                else:
+                    stream = client.images.generate(**options)
+                    operation = "images.generate"
 
-            completed = False
-            try:
-                for event in stream:
-                    _log_openai_stream_event(event, operation)
-                    if event.type.endswith(".partial_image"):
-                        try:
-                            base64.b64decode(event.b64_json, validate=True)
-                        except ValueError as error:
+                completed = False
+                try:
+                    for event in stream:
+                        _log_openai_stream_event(event, operation)
+                        if event.type.endswith(".partial_image"):
+                            try:
+                                base64.b64decode(event.b64_json, validate=True)
+                            except ValueError as error:
+                                raise ImageServiceError(
+                                    "Image API returned invalid partial image data."
+                                ) from error
+                            yield ImageStreamEvent(
+                                type="partial_image",
+                                b64_json=event.b64_json,
+                                partial_image_index=event.partial_image_index,
+                            )
+                        elif event.type.endswith(".completed"):
+                            try:
+                                base64.b64decode(event.b64_json, validate=True)
+                            except ValueError as error:
+                                raise ImageServiceError(
+                                    "Image API returned invalid image data."
+                                ) from error
+                            completed = True
+                            yield ImageStreamEvent(
+                                type="completed",
+                                b64_json=event.b64_json,
+                                cost=_usage_cost(
+                                    getattr(event, "usage", None),
+                                    IMAGE_TOKEN_RATES,
+                                ),
+                            )
+                        else:
                             raise ImageServiceError(
-                                "Image API returned invalid partial image data."
-                            ) from error
-                        yield ImageStreamEvent(
-                            type="partial_image",
-                            b64_json=event.b64_json,
-                            partial_image_index=event.partial_image_index,
-                        )
-                    elif event.type.endswith(".completed"):
-                        try:
-                            base64.b64decode(event.b64_json, validate=True)
-                        except ValueError as error:
-                            raise ImageServiceError(
-                                "Image API returned invalid image data."
-                            ) from error
-                        completed = True
-                        yield ImageStreamEvent(
-                            type="completed",
-                            b64_json=event.b64_json,
-                            cost=_usage_cost(
-                                getattr(event, "usage", None),
-                                IMAGE_TOKEN_RATES,
-                            ),
-                        )
-                    else:
+                                "Image API returned an unsupported streaming event."
+                            )
+                    if not completed:
                         raise ImageServiceError(
-                            "Image API returned an unsupported streaming event."
+                            "Image API stream ended without a completed image."
                         )
-                if not completed:
-                    raise ImageServiceError(
-                        "Image API stream ended without a completed image."
-                    )
-            finally:
-                stream.close()
+                finally:
+                    stream.close()
+        finally:
+            for _, image_stream, _ in stream_images:
+                image_stream.close()
 
     return stream_events()
 

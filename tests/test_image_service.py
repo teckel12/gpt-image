@@ -814,6 +814,59 @@ class ImageServiceTests(unittest.TestCase):
         )
         self.assertEqual(image_events[-1].cost, Decimal("0.0108"))
 
+    def test_openai_sdk_streamed_edit_keeps_upload_open_after_request_closes(self):
+        requests = []
+        encoded_image = base64.b64encode(b"edited").decode("ascii")
+        event = {
+            "type": "image_edit.completed",
+            "b64_json": encoded_image,
+            "background": "auto",
+            "created_at": 123,
+            "output_format": "png",
+            "quality": "medium",
+            "size": "1024x1024",
+        }
+
+        def handle_request(request):
+            requests.append(request.read())
+            body = f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+            return httpx2.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=body,
+            )
+
+        client = OpenAIClient(
+            api_key="test-key",
+            http_client=httpx2.Client(
+                transport=httpx2.MockTransport(handle_request),
+            ),
+        )
+        image = SimpleNamespace(
+            filename="reference.png",
+            mimetype="image/png",
+            stream=io.BytesIO(b"reference-image"),
+        )
+        image_request = validate_request(
+            prompt="Edit this image",
+            model="gpt-image-2.6-sunburst",
+            quality="medium",
+            aspect_ratio="1:1",
+            megapixels=1,
+            stream=True,
+        )
+        try:
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+                with patch("backend.image_service.OpenAI", return_value=client):
+                    image_events = generate_image_stream([image], image_request)
+                    image.stream.close()
+                    image_events = list(image_events)
+        finally:
+            client.close()
+
+        self.assertEqual([event.type for event in image_events], ["completed"])
+        self.assertIn(b"reference-image", requests[0])
+
     def test_image_response_logs_metadata_without_image_payload(self):
         image_bytes = b"private-image-data"
         response = image_api_response(image_bytes)

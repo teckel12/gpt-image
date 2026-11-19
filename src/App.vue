@@ -803,12 +803,11 @@ export default {
   },
   methods: {
     resetForm() {
-      if (!this.backendReady || !this.confirmGeneratedImageReplacement()) {
+      if (!this.backendReady) {
         return;
       }
       this.stopGenerationTimer();
       this.releasePreviews();
-      // this.clearGeneratedImage();
       const defaultModel = this.models[0];
       this.form = createDefaultForm({
         model: defaultModel?.value ?? "",
